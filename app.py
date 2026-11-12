@@ -6,13 +6,20 @@ Local Charts: a small TradingView-style charting app that runs on your own compu
 
 Market data comes from Yahoo Finance through the free `yfinance` package.
 Intraday history is limited by Yahoo: about 60 days for 5m/15m and about 2 years for 1h/4h.
+
+Closed bars (every bar from before today) are saved under ./cache, so after the first download each
+refresh only asks Yahoo for the bars since the last saved one. Delete that folder to force a full
+re-download.
 """
 import argparse
 import datetime as dt
+import os
+import re
 import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,11 +37,19 @@ TIMEFRAMES = {
     "1W": ("1wk", None, False),
 }
 
-FULL_REFRESH_SEC = 6 * 3600   # re-download the whole history this often
-LIVE_REFRESH_SEC = 20         # re-download only the last few days this often
+LIVE_REFRESH_SEC = 20         # ask Yahoo for bars newer than the saved ones this often
+CACHE_DIR = Path(__file__).resolve().parent / "cache"
+SPLIT_TOLERANCE = 0.02        # saved vs fresh close differing by more than this => re-download all
+
+# how long one bar lasts, used to tell whether a bar has closed
+BAR_SPAN = {
+    "5m": pd.Timedelta(minutes=5), "15m": pd.Timedelta(minutes=15), "1h": pd.Timedelta(hours=1),
+    "1d": pd.Timedelta(days=1), "1wk": pd.Timedelta(days=7),
+}
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-_cache = {}
+_cache = {}        # (symbol, yint) -> {"final": closed bars, "df": closed + live bars, "live_at": time}
+_key_locks = {}
 _quote_cache = {}
 _lock = threading.Lock()
 DEMO = False
@@ -52,18 +67,17 @@ def _clean(df):
     return df
 
 
-def _yahoo(symbol, yint, days, short):
+def _yahoo(symbol, yint, days, start=None):
+    """Download bars from Yahoo: from `start` (a date) if given, otherwise the whole available history."""
     import yfinance as yf
 
     t = yf.Ticker(symbol)
     kw = dict(interval=yint, auto_adjust=False, actions=False, prepost=False)
-    if short:
-        period = "5d" if yint in ("5m", "15m", "1h") else "3mo"
-        return _clean(t.history(period=period, **kw))
-    if days is None:
+    if start is None and days is None:
         return _clean(t.history(period="max", **kw))
-    start = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-    return _clean(t.history(start=start, **kw))
+    if start is None:
+        start = dt.date.today() - dt.timedelta(days=days)
+    return _clean(t.history(start=start.isoformat(), **kw))
 
 
 def _demo(symbol, yint, days, short):
@@ -95,27 +109,107 @@ def _demo(symbol, yint, days, short):
     return df.iloc[-300:] if short else df
 
 
+# ---------------------------------------------------------------- disk cache of closed bars
+
+def _cache_path(symbol, yint):
+    safe = re.sub(r"[^A-Za-z0-9.-]", lambda m: "%%%02X" % ord(m.group()), symbol)
+    return CACHE_DIR / f"{safe}_{yint}.csv"
+
+
+def _load_disk(symbol, yint):
+    path = _cache_path(symbol, yint)
+    if not path.exists():
+        return _clean(None)
+    try:
+        df = pd.read_csv(path, index_col=0)
+        df.index = pd.to_datetime(df.index, utc=True).tz_convert(ET)
+        return _clean(df).sort_index()
+    except Exception as e:  # a damaged file just means downloading again
+        print(f"ignoring unreadable cache file {path}: {e}", file=sys.stderr)
+        return _clean(None)
+
+
+def _save_disk(symbol, yint, df):
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _cache_path(symbol, yint)
+        tmp = path.with_suffix(".tmp")
+        df.to_csv(tmp, index_label="Date")
+        os.replace(tmp, path)  # never leave a half-written file behind
+    except Exception as e:
+        print(f"could not write cache for {symbol} {yint}: {e}", file=sys.stderr)
+
+
+def _closed(df, yint):
+    """Bars that ended before today (New York time). Those won't change, so they can be saved."""
+    today = pd.Timestamp.now(tz=ET).normalize()
+    return df[df.index + BAR_SPAN[yint] <= today]
+
+
+def _merge(saved, fresh):
+    """Add freshly downloaded bars to the saved ones (fresh wins where they overlap).
+
+    Returns (ok, merged). ok is False when the overlapping closes don't match, which happens after a
+    split (Yahoo rewrites past prices); then the saved bars can't be trusted and merged is just `fresh`.
+    """
+    if saved.empty:
+        return True, fresh
+    if fresh.empty:
+        return True, saved
+    common = saved.index.intersection(fresh.index)
+    if len(common) == 0:
+        return False, fresh
+    ratio = (fresh.loc[common, "Close"] / saved.loc[common, "Close"]).median()
+    if not abs(ratio - 1) <= SPLIT_TOLERANCE:
+        return False, fresh
+    df = pd.concat([saved, fresh])
+    return True, df[~df.index.duplicated(keep="last")].sort_index()
+
+
+def _key_lock(key):
+    with _lock:
+        return _key_locks.setdefault(key, threading.Lock())
+
+
 def _base(symbol, yint, days):
     key = (symbol, yint)
-    now = time.time()
-    fetch = _demo if DEMO else _yahoo
-    with _lock:
+    if DEMO:  # made-up data: build it once, keep it in memory only
+        with _lock:
+            if key not in _cache:
+                _cache[key] = {"df": _demo(symbol, yint, days, short=False)}
+            return _cache[key]["df"]
+
+    with _key_lock(key):  # one download at a time per symbol/interval
         ent = _cache.get(key)
-    if ent is None or now - ent["full_at"] > FULL_REFRESH_SEC:
-        df = fetch(symbol, yint, days, short=False)
-        ent = {"df": df, "full_at": now, "live_at": now}
-    elif now - ent["live_at"] > LIVE_REFRESH_SEC and not DEMO:
+        if ent is not None and time.time() - ent["live_at"] < LIVE_REFRESH_SEC:
+            return ent["df"]
+        final = ent["final"] if ent is not None else _load_disk(symbol, yint)
+
+        # Only ask for bars from the last saved one onward. Re-getting that one bar lets us spot splits.
+        start = None
+        if not final.empty:
+            last = final.index[-1].date()
+            if days is None or last >= dt.date.today() - dt.timedelta(days=days):
+                start = last
         try:
-            new = fetch(symbol, yint, days, short=True)
-            df = pd.concat([ent["df"], new])
-            df = df[~df.index.duplicated(keep="last")].sort_index()
-            ent = {"df": df, "full_at": ent["full_at"], "live_at": now}
-        except Exception as e:  # keep the old data if the quick refresh fails
-            print(f"live refresh failed for {symbol}: {e}", file=sys.stderr)
-            ent["live_at"] = now
-    with _lock:
-        _cache[key] = ent
-    return ent["df"]
+            fresh = _yahoo(symbol, yint, days, start)
+            ok, df = _merge(final, fresh)
+            if not ok and start is not None:
+                print(f"{symbol} {yint}: saved prices no longer match Yahoo (split?), "
+                      "downloading full history again", file=sys.stderr)
+                df = _yahoo(symbol, yint, days, None)
+            reset = not ok
+        except Exception as e:  # keep showing what we have if Yahoo is unreachable
+            if ent is None and final.empty:
+                raise
+            print(f"refresh failed for {symbol} {yint}: {e}", file=sys.stderr)
+            df, reset = (ent["df"] if ent is not None else final), False
+
+        new_final = _closed(df, yint)
+        if reset or not new_final.index.equals(final.index):
+            _save_disk(symbol, yint, new_final)
+        _cache[key] = {"final": new_final, "df": df, "live_at": time.time()}
+        return df
 
 
 def _to_4h(df):
@@ -208,7 +302,10 @@ def main():
     args = ap.parse_args()
     DEMO = args.demo
     url = f"http://127.0.0.1:{args.port}"
-    print(f"\n  Local Charts running at {url}  (Ctrl+C to stop)\n")
+    print(f"\n  Local Charts running at {url}  (Ctrl+C to stop)")
+    if not DEMO:
+        print(f"  Saved price history: {CACHE_DIR}")
+    print()
     if not args.no_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=args.port, debug=False, threaded=True)

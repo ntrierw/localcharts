@@ -39,6 +39,20 @@ function that returns lines, histograms, horizontal levels, markers or straight-
 helpers in `static/indicators.js` (`Ind.sma`, `Ind.ema`, `Ind.rma`, `Ind.atr`, `Ind.wpr`, `Ind.rsi`,
 `Ind.pivot`, `Ind.valuewhen`, ...) behave like their Pine `ta.*` versions.
 
+## Saved price history
+
+Closed bars (everything from before today, New York time) are saved in the `cache/` folder, one CSV
+per symbol and timeframe. The first time you open a symbol, the app downloads its full history. After that,
+including after a restart, it asks Yahoo only for the bars since the last saved one, and saves new bars
+once they close. Bars still forming today stay in memory and refresh every 20 seconds.
+
+- If a split changes past prices, the app sees that the saved closes no longer match Yahoo's, downloads
+  the full history again and replaces the saved file.
+- Saved 5m/15m/1h bars are kept after Yahoo's 60-day / 2-year window, so intraday history keeps
+  growing while you use the app (unless the app goes unused for longer than that window).
+- If Yahoo can't be reached, the app shows the saved bars.
+- Delete the `cache/` folder to force a full re-download.
+
 ## Limits
 
 - Yahoo keeps about 60 days of 5m/15m bars and about 2 years of 1h bars, so 4h charts and the
@@ -50,7 +64,7 @@ helpers in `static/indicators.js` (`Ind.sma`, `Ind.ema`, `Ind.rma`, `Ind.atr`, `
 
 | Path | What it is |
 | --- | --- |
-| `app.py` | Data server: downloads from Yahoo, caches, builds 4h bars |
+| `app.py` | Data server: downloads from Yahoo, saves closed bars to `cache/`, builds 4h bars |
 | `static/indicators.js` | Indicator math, including the ports of your Pine scripts |
 | `static/registry.js` | Indicator catalog: settings and what each one draws |
 | `static/strategies.js` | SOXL Red-Light Trend and SOXS Spike Fade |
