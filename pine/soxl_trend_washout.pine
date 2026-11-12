@@ -1,0 +1,24 @@
+//@version=5
+// SOXL Red-Light Trend: put this on a SOXL 4h chart.
+// Green background = the trend/washout part of the rule says you may hold SOXL.
+// Check your ATR+ADMF indicator on the SOXS chart as well. If its line was red on this bar
+// or either of the last 2 bars, stay in cash even when the background is green.
+indicator("SOXL Trend / Washout Filter", overlay=true)
+
+len   = input.int(10,  "Money line SMA / ATR length")
+mult  = input.float(1.8, "Band ATR multiplier")
+trend = input.int(200, "Trend SMA length (4h bars)")
+
+ma    = ta.sma(close, len)
+dnB   = ma - mult * ta.atr(len)
+sTr   = ta.sma(close, trend)
+
+inTrend  = close > sTr
+washout  = close < dnB
+allowed  = inTrend or washout
+
+plot(sTr, "200-bar SMA", color.orange, 2)
+plot(dnB, "Buy band", color.green)
+bgcolor(allowed ? color.new(washout ? color.aqua : color.green, 85) : na)
+alertcondition(allowed and not allowed[1], "SOXL allowed", "SOXL trend/washout filter turned ON")
+alertcondition(not allowed and allowed[1], "SOXL not allowed", "SOXL trend/washout filter turned OFF")

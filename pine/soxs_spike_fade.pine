@@ -1,0 +1,38 @@
+//@version=5
+// SOXS Spike Fade — short SOXS when it is stretched above the money line and Willy's EMA rolls over.
+// Rebuilds the exact pieces of the ATR+ADMF and Willy_Div scripts that matter here:
+//   money line = SMA(close,10), bands = money line ± 1.8 × ATR(10), Willy = %R(21), Willy EMA = EMA(%R,7)
+// Backtested on SOXS 4h (Jan 2016 – Nov 2026). Shorting a 3x inverse ETF carries borrow costs and unlimited risk.
+strategy("SOXS Spike Fade", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.05)
+
+len     = input.int(10,    "Money line SMA / ATR length")
+mult    = input.float(1.8, "Band ATR multiplier")
+wrLen   = input.int(21,    "Willy %R length")
+wEmaLen = input.int(7,     "Willy EMA length")
+osLvl   = input.float(-80, "Willy oversold level")
+maxBars = input.int(40,    "Max bars in trade")
+
+ma  = ta.sma(close, len)
+atr = ta.atr(len)
+upB = ma + mult * atr
+dnB = ma - mult * atr
+wr  = ta.wpr(wrLen)
+we  = ta.ema(wr, wEmaLen)
+
+// Entry: close above the money line AND Willy EMA turns down this bar
+entrySig = close > ma and we < we[1] and we[1] >= we[2]
+// Exit: close under the lower (buy) band, OR back under the money line with Willy oversold
+exitSig  = close < dnB or (close < ma and wr < osLvl)
+
+var int sigBar = na
+if entrySig and strategy.position_size == 0
+    strategy.entry("Fade", strategy.short)
+    sigBar := bar_index
+if strategy.position_size < 0 and (exitSig or bar_index - sigBar >= maxBars)
+    strategy.close("Fade")
+
+plot(ma,  "Money line", color.blue)
+plot(upB, "Sell band",  color.red)
+plot(dnB, "Buy band",   color.green)
+plotshape(entrySig and strategy.position_size == 0, "Fade signal", shape.triangledown, location.abovebar, color.red, size=size.small)
