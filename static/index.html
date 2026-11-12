@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Charts</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">Local Charts</div>
+  <form id="symForm" autocomplete="off"><input id="symInput" spellcheck="false" placeholder="Symbol"></form>
+  <div class="tfs" id="tfs">
+    <button data-tf="5m">5m</button><button data-tf="15m">15m</button><button data-tf="1h">1h</button>
+    <button data-tf="4h">4h</button><button data-tf="1D">1D</button><button data-tf="1W">1W</button>
+  </div>
+  <button class="hbtn" id="btnInd">ƒx Indicators</button>
+  <div class="toggles">
+    <label title="Strategy buy/sell markers on SOXL and SOXS 4h charts"><input type="checkbox" id="tgSignals" checked> Strategy signals</label>
+  </div>
+  <div class="status" id="status">Loading…</div>
+</header>
+
+<main>
+  <section class="charts" id="panes"></section>
+
+  <aside>
+    <div class="card">
+      <div class="card-h">Watchlist</div>
+      <table class="watch" id="watch"><tbody></tbody></table>
+      <form id="addForm" class="add"><input id="addInput" placeholder="Add symbol" spellcheck="false"></form>
+    </div>
+
+    <div class="card">
+      <div class="card-h">SOXL Red-Light Trend <span class="muted">4h</span></div>
+      <div id="callBox" class="call">…</div>
+      <ul class="checks" id="checks"></ul>
+      <div id="manualRedBox" class="manual hidden">
+        <label><input type="checkbox" id="manualRed"> ATR+ADMF line on SOXS was red in the last 3 bars</label>
+        <div class="muted small">Only shown if the ADMF calculation is unavailable.</div>
+      </div>
+      <label class="small notify"><input type="checkbox" id="notify"> Notify me when the call changes</label>
+      <table class="stats" id="statsRed"></table>
+      <div class="muted small" id="redNote"></div>
+      <details><summary>Recent trades</summary><table class="trades" id="tradesRed"></table></details>
+    </div>
+
+    <div class="card">
+      <div class="card-h">SOXS Spike Fade <span class="muted">4h · short only, for reference</span></div>
+      <div id="fadeNow" class="small"></div>
+      <table class="stats" id="statsFade"></table>
+      <details><summary>Recent trades</summary><table class="trades" id="tradesFade"></table></details>
+    </div>
+
+    <div class="muted small foot">Data: Yahoo Finance via yfinance (may be delayed). Charts:
+      <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>. Not financial advice.</div>
+  </aside>
+</main>
+
+<div id="modal" class="modal hidden"><div class="mbox" id="modalBody"></div></div>
+
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/indicators.js"></script>
+<script src="/static/registry.js"></script>
+<script src="/static/strategies.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
