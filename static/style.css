@@ -58,6 +58,9 @@ table { width: 100%; border-collapse: collapse; }
 .trades td { padding: 2px 0; font-size: 12px; font-variant-numeric: tabular-nums; }
 .trades td:last-child { text-align: right; }
 details { margin-top: 6px; } summary { cursor: pointer; color: var(--muted); }
+.rules { padding: 6px 2px 2px; line-height: 1.45; }
+.checks li.warn { color: #ff9800; }
+.call .sub { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 .foot { padding: 4px; } .foot a { color: var(--muted); }
 
 @media (max-width: 860px) {

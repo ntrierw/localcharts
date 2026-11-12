@@ -14,6 +14,21 @@ const fmtV = v => { if (v == null || isNaN(v)) return '–'; const a = Math.abs(
 const pct = (v, d = 1) => v == null || isNaN(v) ? '–' : (v >= 0 ? '+' : '') + v.toFixed(d) + '%';
 const cls = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
 const dstr = t => new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ');
+// Bar times are New York wall-clock time stored as if it were UTC. This is "now" in the same form.
+function nyNow() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000;
+}
+// Index of the last 1h bar that has finished (the 15:30 bar ends at the 16:00 close).
+function lastClosed1h(bars, now = nyNow()) {
+  for (let i = bars.length - 1; i >= 0; i--) {
+    const t = bars[i].time, end = Math.min(t + 3600, t - (t % 86400) + 16 * 3600);
+    if (end <= now) return i;
+  }
+  return -1;
+}
 async function api(path) {
   const r = await fetch(path); const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || r.statusText);
@@ -198,16 +213,20 @@ $('panes').addEventListener('click', e => {
 });
 
 // ------------------------------------------------------------------ strategy overlays on the price chart
-let lastRed = null, lastFade = null;
+let lastRed = null, lastFade = null, lastPiv = null;
 function applyOverlays() {
   if (!candles) return;
-  const sig = $('tgSignals').checked && S.tf === '4h';
+  const sig = $('tgSignals').checked;
   let mk = [], bg = [];
-  if (sig && S.symbol === 'SOXL' && lastRed) {
+  if (sig && S.tf === '1h' && S.symbol === 'SOXL' && lastPiv) {
+    mk = lastPiv.markers;
+    bg = S.bars.map(b => { const st = lastPiv.stateByTime.get(b.time);
+      return st && st.hold ? { time: b.time, value: 1, color: 'rgba(38,166,154,.10)' } : { time: b.time }; });
+  } else if (sig && S.tf === '4h' && S.symbol === 'SOXL' && lastRed) {
     mk = lastRed.markers;
     bg = S.bars.map(b => { const st = lastRed.stateByTime.get(b.time);
       return st && st.hold ? { time: b.time, value: 1, color: st.washout && !st.inTrend ? 'rgba(0,188,212,.10)' : 'rgba(38,166,154,.10)' } : { time: b.time }; });
-  } else if (sig && S.symbol === 'SOXS' && lastFade) mk = lastFade.markers;
+  } else if (sig && S.tf === '4h' && S.symbol === 'SOXS' && lastFade) mk = lastFade.markers;
   const have = new Set(S.bars.map(b => b.time));
   candles.setMarkers([...priceMarkers, ...mk.filter(m => have.has(m.time))].sort((a, b) => a.time - b.time));
   bgSeries.setData(bg);
@@ -240,14 +259,51 @@ const statRows = (st, bhLabel) => !st ? '<tr><td>Not enough data</td></tr>' :
 const tradeRows = trs => trs.slice(-10).reverse().map(t =>
   `<tr><td>${dstr(t.entryTime)}</td><td>${fmt(t.entry)} → ${fmt(t.exit)}${t.open ? ' <span class="muted">open</span>' : ''}</td><td class="${cls(t.ret)}">${pct(t.ret * 100)}</td></tr>`).join('') || '<tr><td class="muted">None yet</td></tr>';
 
+const COLOR_NAME = { red: 'red', orange: 'orange', lime: 'lime', aqua: 'aqua', blue: 'blue (no divergence)' };
+const hm = t => dstr(t).slice(5);   // "MM-DD HH:MM"
+
+function renderPivot(piv, soxl1h, red) {
+  const now = piv.now;
+  if (!now) { $('pivCall').textContent = '–'; $('pivChecks').innerHTML = '<li class="no">Not enough 1h data yet</li>'; return '–'; }
+  const call = now.hold ? 'HOLD SOXL' : 'CASH';
+  const barT = soxl1h[piv.nowIdx].time;
+  $('pivCall').innerHTML = `${call}<span class="sub">from the last finished 1h bar (${hm(barT)} ET)</span>`;
+  $('pivCall').className = 'call ' + (now.hold ? 'hold' : 'cash');
+  const item = (label, val, st) => `<li class="${st === 'warn' ? 'warn' : ''}"><span>${label}</span><span class="${st}">${val}</span></li>`;
+  const colorSt = (c, bad, good) => c === bad ? 'bad' : good.includes(c) ? 'ok' : 'no';
+  let html =
+    item('SOXS ADMF', COLOR_NAME[now.soxsColor] || '–', colorSt(now.soxsColor, 'red', ['orange'])) +
+    item('SOXL ADMF', COLOR_NAME[now.soxlColor] || '–', colorSt(now.soxlColor, 'red', ['aqua'])) +
+    item('Cash timer', now.left ? `${now.left} more bar${now.left > 1 ? 's' : ''} · ${now.cause.why} at ${hm(now.cause.time)}` :
+      now.ended ? `ended by ${now.ended}` : 'clear', now.left ? 'bad' : 'ok');
+  const f = piv.forming;
+  if (f && f.bear) html += item('Bar still forming', `${f.bear} so far: CASH if it holds at the close`, 'warn');
+  else if (f && f.bull && !now.hold) html += item('Bar still forming', `${f.bull} so far: may end the cash period`, 'warn');
+  $('pivChecks').innerHTML = html;
+  $('statsPiv').innerHTML = statRows(piv.stats, 'Hold SOXL');
+  const same = red && red.stats ? piv.statsFrom(red.stats.from) : null;
+  $('pivNote').textContent = (same ? `Since ${dstr(red.stats.from).slice(0, 10)}: this rule ${pct(same.totalPct, 0)} (max drawdown ${fmt(same.maxDDPct, 0)}%), ` +
+    `Red-Light Trend ${pct(red.stats.totalPct, 0)} (${fmt(red.stats.maxDDPct, 0)}%), hold SOXL ${pct(red.stats.bhPct, 0)} (${fmt(red.stats.bhDDPct, 0)}%). ` : '') +
+    'Yahoo keeps about 2 years of 1h bars, so this is all the history there is. Acting more than an hour or two late gives up much of the edge.';
+  $('tradesPiv').innerHTML = tradeRows(piv.trades);
+  return call;
+}
+
 async function loadStrategy() {
   try {
-    const [l, s] = await Promise.all([api('/api/bars?symbol=SOXL&tf=4h'), api('/api/bars?symbol=SOXS&tf=4h')]);
+    const [l, s, l1, s1] = await Promise.all([api('/api/bars?symbol=SOXL&tf=4h'), api('/api/bars?symbol=SOXS&tf=4h'),
+      api('/api/bars?symbol=SOXL&tf=1h'), api('/api/bars?symbol=SOXS&tf=1h')]);
     const soxl = l.bars, soxs = s.bars;
     const red = Strat.redLightTrend(soxl, soxs, { manualRed: $('manualRed').checked });
     red.stateByTime = new Map(); soxl.forEach((b, i) => red.stateByTime.set(b.time, red.state[i]));
     const fade = Strat.spikeFade(soxs);
-    lastRed = red; lastFade = fade;
+    const piv = Strat.admfPivot(l1.bars, s1.bars, { lastClosed: lastClosed1h(l1.bars) });
+    piv.stateByTime = new Map(); l1.bars.forEach((b, i) => piv.stateByTime.set(b.time, piv.state[i]));
+    lastRed = red; lastFade = fade; lastPiv = piv;
+    const pivCall = renderPivot(piv, l1.bars, red);
+    if (S.lastCall && pivCall !== S.lastCall && $('notify').checked && 'Notification' in window && Notification.permission === 'granted')
+      new Notification('SOXL ADMF Pivot', { body: `Call changed: ${S.lastCall} → ${pivCall}` });
+    S.lastCall = pivCall;
     const now = red.now, last = soxl[soxl.length - 1];
     const call = now ? (now.hold ? 'HOLD SOXL' : 'CASH') : '–';
     $('callBox').textContent = call;
@@ -266,13 +322,11 @@ async function loadStrategy() {
     $('fadeNow').innerHTML = fade.signalNow ? '<span class="down">Fade signal on the latest SOXS bar</span>' : '<span class="muted">No fade signal on the latest SOXS bar</span>';
     $('statsFade').innerHTML = statRows(fade.stats, 'Hold SOXS');
     $('tradesFade').innerHTML = tradeRows(fade.trades);
-    if (S.lastCall && call !== S.lastCall && $('notify').checked && 'Notification' in window && Notification.permission === 'granted')
-      new Notification('SOXL Red-Light Trend', { body: `Call changed: ${S.lastCall} → ${call}` });
-    S.lastCall = call;
     applyOverlays();
   } catch (e) {
-    $('callBox').textContent = '–';
+    $('callBox').textContent = '–'; $('pivCall').textContent = '–';
     $('checks').innerHTML = `<li class="bad">${esc(e.message)}</li>`;
+    $('pivChecks').innerHTML = `<li class="bad">${esc(e.message)}</li>`;
   }
 }
 

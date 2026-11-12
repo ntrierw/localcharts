@@ -28,9 +28,39 @@ To try it without internet: `python app.py --demo`.
     **Willy %R Divergences**
   - Built-ins: Volume, SMA, EMA, Bollinger Bands, RSI, MACD
 - Watchlist with live prices (refreshes every 30 seconds).
-- **SOXL Red-Light Trend** panel: today's call (HOLD SOXL / CASH), which rules pass, a backtest against
-  holding SOXL, recent trades, and an optional browser notification when the call changes.
+- **SOXL ADMF Pivot** panel (1h, the main strategy): the current call (HOLD SOXL / CASH) from the last
+  finished 1h bar, why, a warning when the bar still forming shows a signal, a backtest against holding
+  SOXL and against Red-Light Trend over the same dates, recent trades, and an optional browser
+  notification when the call changes. Its BUY/SELL markers show on the SOXL 1h chart.
+- **SOXL Red-Light Trend** panel (4h, the previous rule), kept for comparison.
 - **SOXS Spike Fade** panel, for reference (it needs shorting).
+
+## SOXL ADMF Pivot
+
+Hold SOXL by default. When a 1h bar closes with the ADMF Divergence color **red** on SOXS or on SOXL,
+go to cash for the next 4 bars (a new red restarts the count). If SOXL turns **aqua** or SOXS turns
+**orange** in that time, buy back early. Signals are read at a bar's close and filled at the next bar's
+open, with 0.05% cost per side.
+
+Why these colors: on 1h bars, SOXL fell on average over the next 8–32 hours after SOXS red or SOXL red,
+and rose after SOXL aqua or SOXS orange, by similar amounts in 2025 and in 2026. The settings were chosen on
+2025 data only and then tested on 2026, which they had not seen:
+
+| 2026 (unseen) | Return | Max drawdown | Trades |
+| --- | --- | --- | --- |
+| ADMF Pivot (1h) | about +480% | 51% | 73 |
+| Red-Light Trend (4h) | +166% | 67% | 15 |
+| Hold SOXL | +41% | 85% | 1 |
+
+Things to know before trading it:
+
+- **Act within about an hour.** Signals 1–2 bars late still beat holding, but signals 8+ hours old are worth nothing.
+- **It depends on the ADMF defaults** (length 14, lookback 20). Nearby settings test noticeably worse.
+- **Only 2 years of history.** Yahoo keeps about 2 years of 1h bars, so the test covers one up-year and one
+  choppy year. Drawdowns of about 50% still happened.
+- **A few trades make most of the money.** Without its 10 best trades of 73, 2026 would have been a loss.
+  Missing one signal can matter a lot.
+- Yahoo's volume can differ from TradingView's, so ADMF colors here can differ from your TradingView chart on some bars.
 
 ## Adding your own indicator
 
@@ -67,7 +97,7 @@ once they close. Bars still forming today stay in memory and refresh every 20 se
 | `app.py` | Data server: downloads from Yahoo, saves closed bars to `cache/`, builds 4h bars |
 | `static/indicators.js` | Indicator math, including the ports of your Pine scripts |
 | `static/registry.js` | Indicator catalog: settings and what each one draws |
-| `static/strategies.js` | SOXL Red-Light Trend and SOXS Spike Fade |
+| `static/strategies.js` | SOXL ADMF Pivot, SOXL Red-Light Trend and SOXS Spike Fade |
 | `static/app.js` | Panes, legends, indicator dialogs, watchlist, strategy panel |
 | `pine/` | The two TradingView strategy scripts |
 

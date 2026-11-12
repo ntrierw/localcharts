@@ -25,6 +25,30 @@ const Strat = (() => {
     };
   }
 
+  // Long-or-cash backtest: want[i] (1 = hold SOXL) is decided at the close of bar i,
+  // filled at the open of bar i+1 and held until the open of bar i+2.
+  function longOnly(bars, want, startIdx) {
+    const n = bars.length, trades = [], curve = [], markers = [];
+    let eq = 1, pos = 0, cur = null;
+    for (let i = startIdx; i < n - 1; i++) {
+      const w = want[i] ? 1 : 0;
+      if (w !== pos) {
+        eq *= 1 - COST;
+        if (w) { cur = { entryTime: bars[i + 1].time, entry: bars[i + 1].open };
+          markers.push({ time: bars[i + 1].time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: 'BUY' }); }
+        else { cur.exitTime = bars[i + 1].time; cur.exit = bars[i + 1].open;
+          cur.ret = cur.exit / cur.entry * (1 - COST) ** 2 - 1; trades.push(cur); cur = null;
+          markers.push({ time: bars[i + 1].time, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: 'SELL' }); }
+        pos = w;
+      }
+      const nxt = i + 2 < n ? bars[i + 2].open : bars[n - 1].close;
+      if (pos) eq *= nxt / bars[i + 1].open;
+      curve.push(eq);
+    }
+    if (cur) { cur.exit = bars[n - 1].close; cur.ret = cur.exit / cur.entry * (1 - COST) - 1; cur.open = true; trades.push(cur); }
+    return { trades, markers, stats: startIdx >= 0 && startIdx < n - 1 ? stats(trades, curve, bars, startIdx) : null };
+  }
+
   // ------------------------------------------------------------------ SOXL Red-Light Trend
   // Hold SOXL when:  no red ATR+ADMF bar (on SOXS) in the last `redWait`+1 bars
   //             AND (SOXL close > SMA(trendLen)  OR  SOXL close < lower band  [washout])
@@ -52,29 +76,45 @@ const Strat = (() => {
                    trend: trend[i], lower: b.lower[i], ma: b.ma[i] };
     }
 
-    // backtest: decision at close i -> position during open[i+1] .. open[i+2]
     const startIdx = state.findIndex(s => s);
-    const trades = [], curve = [], markers = [];
-    let eq = 1, pos = 0, cur = null;
-    for (let i = startIdx; i < n - 1; i++) {
-      const want = state[i].hold ? 1 : 0;
-      if (want !== pos) {
-        eq *= 1 - COST;
-        if (want) { cur = { entryTime: soxl[i + 1].time, entry: soxl[i + 1].open };
-          markers.push({ time: soxl[i + 1].time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: 'BUY' }); }
-        else { cur.exitTime = soxl[i + 1].time; cur.exit = soxl[i + 1].open;
-          cur.ret = cur.exit / cur.entry * (1 - COST) ** 2 - 1; trades.push(cur); cur = null;
-          markers.push({ time: soxl[i + 1].time, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: 'SELL' }); }
-        pos = want;
-      }
-      const nxt = i + 2 < n ? soxl[i + 2].open : soxl[n - 1].close;
-      if (pos) eq *= nxt / soxl[i + 1].open;
-      curve.push(eq);
-    }
-    if (cur) { cur.exit = soxl[n - 1].close; cur.ret = cur.exit / cur.entry * (1 - COST) - 1; cur.open = true; trades.push(cur); }
-
-    return { state, trades, markers, haveAdmf, stats: startIdx >= 0 ? stats(trades, curve, soxl, startIdx) : null,
+    const bt = longOnly(soxl, state.map(s => s && s.hold), startIdx);
+    return { state, trades: bt.trades, markers: bt.markers, haveAdmf, stats: bt.stats,
              now: state[n - 1], bandsLower: b.lower, trendLine: trend };
+  }
+
+  // ------------------------------------------------------------------ SOXL ADMF Pivot (1h)
+  // Uses the ADMF divergence colors of SOXL and SOXS on 1h bars:
+  //   bear = SOXS red (SOXS new high, flow weaker) or SOXL red (SOXL new high, flow weaker)
+  //   bull = SOXL aqua (higher low, flow lower) or SOXS orange (the same turn seen from SOXS)
+  // Hold SOXL by default. A bear color sends it to cash for `cashBars` bars (a new bear color
+  // restarts the count); a bull color ends the cash period early.
+  // `lastClosed` is the index of the last finished bar: the call shown as "now" comes from it,
+  // so a color that appears on the still-forming bar and then vanishes doesn't flip the call.
+  function admfPivot(soxl, soxs, opts = {}) {
+    const { cashBars = 4, warmup = 60, lastClosed = soxl.length - 1 } = opts;
+    const n = soxl.length;
+    const cl = Ind.admfColors(soxl);
+    const csAll = Ind.admfColors(soxs), csByTime = new Map(soxs.map((x, i) => [x.time, csAll[i]]));
+    const cs = soxl.map(x => csByTime.get(x.time) || null);
+
+    const state = new Array(n).fill(null);
+    let left = 0, cause = null;
+    for (let i = 0; i < n; i++) {
+      const bearWhy = cs[i] === 'red' ? 'SOXS red' : cl[i] === 'red' ? 'SOXL red' : null;
+      const bullWhy = cl[i] === 'aqua' ? 'SOXL aqua' : cs[i] === 'orange' ? 'SOXS orange' : null;
+      let ended = null;
+      if (bearWhy) { left = cashBars; cause = { why: bearWhy, time: soxl[i].time }; }
+      else if (bullWhy && left > 0) { left = 0; ended = bullWhy; }
+      if (i >= warmup) state[i] = { hold: left === 0, left, cause: left ? cause : null, bear: bearWhy, bull: bullWhy, ended,
+                                    soxlColor: cl[i], soxsColor: cs[i] };
+      if (left > 0) left--;
+    }
+    const startIdx = Math.min(warmup, n - 1);
+    const bt = longOnly(soxl, state.map(s => s && s.hold), startIdx);
+    // same backtest from a later start, for comparing with other strategies over the same dates
+    const statsFrom = t => { const k = soxl.findIndex(x => x.time >= t); return k >= startIdx ? longOnly(soxl, state.map(s => s && s.hold), k).stats : null; };
+    return { state, trades: bt.trades, markers: bt.markers, stats: bt.stats, statsFrom,
+             now: state[lastClosed], nowIdx: lastClosed, forming: lastClosed < n - 1 ? state[n - 1] : null };
   }
 
   // ------------------------------------------------------------------ SOXS Spike Fade (short SOXS)
@@ -104,5 +144,5 @@ const Strat = (() => {
              signalNow: entry(n - 1) };
   }
 
-  return { redLightTrend, spikeFade };
+  return { redLightTrend, admfPivot, spikeFade };
 })();

@@ -16,7 +16,7 @@
   </div>
   <button class="hbtn" id="btnInd">ƒx Indicators</button>
   <div class="toggles">
-    <label title="Strategy buy/sell markers on SOXL and SOXS 4h charts"><input type="checkbox" id="tgSignals" checked> Strategy signals</label>
+    <label title="Strategy buy/sell markers: ADMF Pivot on SOXL 1h, Red-Light Trend on SOXL 4h, Spike Fade on SOXS 4h"><input type="checkbox" id="tgSignals" checked> Strategy signals</label>
   </div>
   <div class="status" id="status">Loading…</div>
 </header>
@@ -32,14 +32,29 @@
     </div>
 
     <div class="card">
-      <div class="card-h">SOXL Red-Light Trend <span class="muted">4h</span></div>
+      <div class="card-h">SOXL ADMF Pivot <span class="muted">1h</span></div>
+      <div id="pivCall" class="call">…</div>
+      <ul class="checks" id="pivChecks"></ul>
+      <label class="small notify"><input type="checkbox" id="notify"> Notify me when the call changes</label>
+      <table class="stats" id="statsPiv"></table>
+      <div class="muted small" id="pivNote"></div>
+      <details><summary>How it works</summary><div class="small rules">
+        Hold SOXL by default. When a 1h bar closes with ADMF <b class="down">red</b> on SOXS or on SOXL,
+        go to cash for the next 4 bars (a new red restarts the count). If SOXL turns <b>aqua</b> or SOXS turns
+        <b>orange</b> during that time, buy back early. The call uses the last finished 1h bar; act on it at the next
+        bar's open. Uses the ADMF defaults (length 14, lookback 20): other settings test noticeably worse.
+      </div></details>
+      <details><summary>Recent trades</summary><table class="trades" id="tradesPiv"></table></details>
+    </div>
+
+    <div class="card">
+      <div class="card-h">SOXL Red-Light Trend <span class="muted">4h · previous rule</span></div>
       <div id="callBox" class="call">…</div>
       <ul class="checks" id="checks"></ul>
       <div id="manualRedBox" class="manual hidden">
         <label><input type="checkbox" id="manualRed"> ATR+ADMF line on SOXS was red in the last 3 bars</label>
         <div class="muted small">Only shown if the ADMF calculation is unavailable.</div>
       </div>
-      <label class="small notify"><input type="checkbox" id="notify"> Notify me when the call changes</label>
       <table class="stats" id="statsRed"></table>
       <div class="muted small" id="redNote"></div>
       <details><summary>Recent trades</summary><table class="trades" id="tradesRed"></table></details>
