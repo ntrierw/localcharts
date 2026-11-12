@@ -59,7 +59,9 @@ DEMO = False
 
 def _clean(df):
     if df is None or df.empty:
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+        # keep a time index even when empty, so date filtering on it still works
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"],
+                            index=pd.DatetimeIndex([], tz=ET))
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     if df.index.tz is None:
