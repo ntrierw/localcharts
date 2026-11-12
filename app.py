@@ -307,6 +307,14 @@ def main():
     print(f"\n  Local Charts running at {url}  (Ctrl+C to stop)")
     if not DEMO:
         print(f"  Saved price history: {CACHE_DIR}")
+        # alerts.py does `import app`: point that at this running copy so both share one bar cache
+        sys.modules.setdefault("app", sys.modules[__name__])
+        try:
+            import alerts
+            if alerts.start_in_background():
+                print("  Phone alerts: on (log in alerts/alerts.log)")
+        except Exception as e:
+            print(f"  Phone alerts could not start: {e}")
     print()
     if not args.no_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()

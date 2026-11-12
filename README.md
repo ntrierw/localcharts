@@ -62,6 +62,34 @@ Things to know before trading it:
   Missing one signal can matter a lot.
 - Yahoo's volume can differ from TradingView's, so ADMF colors here can differ from your TradingView chart on some bars.
 
+## Phone alerts
+
+Get a push notification on your phone whenever the ADMF Pivot call changes: **BUY SOXL** when it goes back
+to HOLD, **SELL SOXL** when it goes to CASH. Each alert says which bar triggered it, why, and when to act
+(at the next bar's open, or at the 9:30 open for a signal from the day's last bar). It arrives about 2 minutes
+after the bar closes. Nothing places orders.
+
+It uses [ntfy](https://ntfy.sh), a free push service with no account needed:
+
+1. Run `python alerts.py setup` once (with `.venv\Scripts\python` on Windows). It makes a private channel name
+   and saves it in `alerts/config.json`.
+2. Install the free **ntfy** app on your phone, tap **+**, enter that channel name and subscribe.
+3. Run `python alerts.py test` and a test notification should arrive.
+
+From then on, the alerts run whenever the chart app is running (its window says "Phone alerts: on"), checking
+every 30 seconds during market hours. The browser page doesn't need to be open, but the computer has to be
+on. Every alert is logged in `alerts/alerts.log`. If the app was off when the call changed, the alert is sent
+when it starts again (with the bar time, so you can tell it's late).
+
+| Command | What it does |
+| --- | --- |
+| `python alerts.py status` | The current call, from the last finished 1h bar |
+| `python alerts.py test` | Sends a test notification |
+| `python alerts.py check` | Compares the alerts' Python copy of the strategy with the app's JavaScript, bar by bar (needs Node.js). Run it after changing `static/strategies.js` or `static/indicators.js`. |
+
+Keep the channel name private: anyone who knows it can read and send to it. To stop alerts, delete the
+`alerts/` folder or unsubscribe in the app.
+
 ## Adding your own indicator
 
 Open `static/registry.js` and add an entry. Each entry lists its settings and a `compute(bars, params)`
@@ -98,6 +126,8 @@ once they close. Bars still forming today stay in memory and refresh every 20 se
 | `static/indicators.js` | Indicator math, including the ports of your Pine scripts |
 | `static/registry.js` | Indicator catalog: settings and what each one draws |
 | `static/strategies.js` | SOXL ADMF Pivot, SOXL Red-Light Trend and SOXS Spike Fade |
+| `alerts.py` | Phone alerts when the ADMF Pivot call changes (started by `app.py`) |
+| `pivot.py` | The ADMF Pivot in Python for the alerts (same results as the JavaScript; `alerts.py check` verifies) |
 | `static/app.js` | Panes, legends, indicator dialogs, watchlist, strategy panel |
 | `pine/` | The two TradingView strategy scripts |
 
