@@ -1,0 +1,160 @@
+/* Phone layout on top of the desktop's static/style.css */
+:root { --tab-h: 58px; --hi: #2a2e39; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; font-size: 14px;
+  -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+button { font: inherit; color: inherit; }
+svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.views { position: relative; flex: 1; min-height: 0; }
+.view { position: absolute; inset: 0; background: var(--bg); }
+.chart-view { display: flex; flex-direction: column; z-index: 0; }   /* own stacking context: legends stay under the pages */
+.page { display: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 10px 16px; }
+.page.on { display: block; z-index: 5; }
+.ph { font-size: 22px; font-weight: 700; padding: 14px 4px 10px; position: sticky; top: 0; background: var(--bg); z-index: 3; }
+.pad { padding: 10px 4px; }
+
+/* ---------------------------------------------------------------- chart toolbar */
+header.tb { display: block; padding: 6px 8px 0; border-bottom: 1px solid var(--line); flex: none; }
+.tb-row { display: flex; align-items: center; gap: 8px; }
+.tb-row + .tb-row { margin-top: 6px; }
+.tb-scroll { overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.tb-scroll::-webkit-scrollbar { display: none; }
+#symForm { flex: none; }
+#symInput { width: 96px; font-size: 18px; font-weight: 700; padding: 6px 8px; background: transparent; border: 1px solid transparent; }
+#symInput:focus { background: var(--panel); border-color: var(--accent); outline: none; }
+.hq { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.hq b { font-size: 16px; margin-right: 6px; }
+.ibtn { flex: none; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; color: var(--text); padding: 0; }
+.ibtn:active { background: var(--hi); }
+.ibtn.fx { font-weight: 700; font-style: italic; font-size: 16px; width: 44px; }
+.ibtn.spin svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.seg { flex: none; display: inline-flex; background: var(--panel); border-radius: 9px; padding: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); padding: 6px 10px; border-radius: 7px; font-size: 13px;
+  min-width: 36px; display: inline-flex; align-items: center; justify-content: center; }
+.seg button svg { width: 17px; height: 17px; }
+.tfs button.on, .seg button.on { background: var(--hi); color: var(--text); font-weight: 600; }
+.tfs button:hover { background: none; }
+.tfs button.on:hover { background: var(--hi); }
+.chip { flex: none; display: inline-flex; align-items: center; }
+.chip input { display: none; }
+.chip span { padding: 6px 11px; border-radius: 9px; background: var(--panel); color: var(--muted); font-size: 13px; }
+.chip input:checked + span { color: var(--up); background: rgba(38,166,154,.15); font-weight: 600; }
+header.tb .status { margin: 0; padding: 4px 2px 5px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------- chart panes */
+.charts { flex: 1; min-height: 0; height: auto !important; }
+.pane { min-height: 64px; }
+.pane.price-pane { flex: 3.4; }
+.legend { top: 4px; left: 6px; right: 60px; font-size: 11px; overflow: hidden; }
+.legend .lrow { overflow: hidden; text-overflow: ellipsis; }
+.legend .lb { opacity: .8; font-size: 13px; padding: 2px 6px; margin-left: 2px; display: inline-block; }
+
+/* ---------------------------------------------------------------- tab bar */
+.tabbar { flex: none; height: var(--tab-h); display: flex; background: var(--panel); border-top: 1px solid var(--line); }
+.tabbar button { flex: 1; position: relative; border: 0; background: none; color: var(--muted); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px; font-size: 11px; padding: 0; }
+.tabbar button svg { width: 22px; height: 22px; }
+.tabbar button.on { color: var(--text); }
+.tabbar button.on svg { stroke: var(--accent); }
+.badge { position: absolute; top: 5px; left: calc(50% + 8px); font-style: normal; font-size: 9px; font-weight: 700; padding: 1px 5px;
+  border-radius: 8px; background: var(--hi); color: var(--text); letter-spacing: .3px; }
+.badge:empty { display: none; }
+.badge.hold { background: var(--up); color: #fff; }
+.badge.cash { background: #5d606b; color: #fff; }
+.dot { position: absolute; top: 9px; left: calc(50% + 9px); width: 7px; height: 7px; border-radius: 50%; background: var(--up); }
+
+/* ---------------------------------------------------------------- cards */
+.card { border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.card-h { font-size: 15px; }
+.call { font-size: 24px; padding: 12px; border-radius: 10px; }
+.checks li { padding: 6px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.checks li:last-child { border-bottom: 0; }
+.checks li > span:last-child { text-align: right; }
+.stats td { padding: 4px 0; }
+.trades td { padding: 5px 4px 5px 0; }
+details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+summary { padding: 6px 0; list-style: none; display: flex; justify-content: space-between; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: '›'; transform: rotate(90deg); transition: transform .15s; font-size: 16px; line-height: 1; }
+details[open] summary::after { transform: rotate(-90deg); }
+.linkbtn { display: block; margin-top: 10px; background: none; border: 0; padding: 6px 0; color: var(--accent); font-size: 13px; }
+.notify { margin: 4px 0 10px; color: var(--text); }
+
+.switch-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; }
+.switch-row.big { padding: 4px 0 10px; }
+.switch { -webkit-appearance: none; appearance: none; flex: none; width: 44px; height: 26px; border-radius: 13px; background: #434651;
+  position: relative; transition: background .15s; margin: 0; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s; }
+.switch:checked { background: var(--up); }
+.switch:checked::after { left: 21px; }
+
+.btnrow { display: flex; gap: 8px; margin: 10px 0 6px; flex-wrap: wrap; }
+.btnrow button, .checks button { background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 14px; }
+.checks button { padding: 4px 10px; font-size: 12px; color: var(--accent); }
+.btnrow button:active, .checks button:active { background: var(--hi); }
+.log { white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--muted); margin: 6px 0 0; max-height: 300px; overflow-y: auto;
+  -webkit-user-select: text; user-select: text; }
+.foot a { color: var(--muted); }
+
+/* ---------------------------------------------------------------- watchlist */
+.add input { font-size: 16px; padding: 11px 12px; border-radius: 10px; margin: 0 0 10px; background: var(--panel); }
+.add input:focus { outline: none; border-color: var(--accent); }
+.watch { background: var(--panel); border-radius: 12px; overflow: hidden; }
+.watch td { padding: 14px 6px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.watch tr:last-child td { border-bottom: 0; }
+.watch td:first-child { padding-left: 14px; font-weight: 600; }
+.watch td.num { font-size: 14px; }
+.watch tr:hover td { background: none; }
+.watch tr:active td { background: var(--hi); }
+.watch td.x { visibility: visible; width: 40px; font-size: 18px; color: #5d606b; }
+
+/* ---------------------------------------------------------------- dialogs as bottom sheets */
+.modal { align-items: flex-end; }
+.mbox { width: 100%; max-height: 85%; border-radius: 16px 16px 0 0; border: 0; border-top: 1px solid var(--line);
+  padding: 8px 16px 20px; animation: up .18s ease-out; }
+.mbox::before { content: ''; display: block; width: 36px; height: 4px; border-radius: 2px; background: #434651; margin: 0 auto 10px; }
+@keyframes up { from { transform: translateY(40px); opacity: .5; } }
+.mh { font-size: 17px; align-items: center; }
+.mh .x { font-size: 18px; padding: 4px 8px; }
+.irow { padding: 10px 0; }
+.irow > span:first-child { min-width: 0; }
+.irow > span:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.irow button, .mfoot button { padding: 7px 10px; font-size: 13px; border-radius: 8px; margin: 0; }
+.mfoot button { padding: 10px 18px; font-size: 14px; }
+.frow { padding: 8px 0; }
+.frow input[type=number], .frow select { width: 110px; font-size: 16px; padding: 7px 8px; border-radius: 8px; }
+.frow input[type=checkbox] { width: 22px; height: 22px; }
+.frow input[type=color] { width: 44px; height: 32px; border-radius: 6px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 8px; justify-content: flex-end; }
+.swatches i { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; }
+.swatches i.on { border-color: #fff; }
+
+.toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + 14px); transform: translate(-50%, 20px); background: #363a45;
+  color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; max-width: calc(100% - 32px); z-index: 30; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+@media (min-width: 700px) {   /* tablets / landscape: a bit roomier */
+  .page { padding: 0 max(16px, calc(50% - 320px)) 16px; }
+}
+
+/* taps on an icon count as taps on its button (app.js reads data-* from the tapped element) */
+.seg button svg, .ibtn svg { pointer-events: none; }
+.add input::placeholder { text-transform: none; }
+
+/* landscape phones: one toolbar row, slimmer tab bar, more room for the chart */
+@media (max-height: 500px) {
+  :root { --tab-h: 44px; }
+  header.tb { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+  header.tb .tb-row + .tb-row { margin-top: 0; }
+  header.tb .tb-row:first-child { flex: 1; min-width: 0; }
+  header.tb .status { display: none; }
+  .tabbar button { flex-direction: row; gap: 6px; }
+  .tabbar button svg { width: 18px; height: 18px; }
+  .ibtn { width: 34px; height: 34px; }
+}

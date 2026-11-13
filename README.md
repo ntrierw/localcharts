@@ -96,6 +96,36 @@ and Run: Minimized. It then starts minimized each time you sign in. If the app i
 again (for example with `Start (Windows).bat`) just opens the browser, so alerts never go out twice. Delete
 the shortcut to undo.
 
+## Android app
+
+The same app for an Android phone (Android 8 or newer): charts with all the indicators and their settings,
+the watchlist, the three strategy panels with their backtests and signals, and **phone alerts built in** (no
+computer and no ntfy needed). It downloads from Yahoo Finance itself and keeps its own saved price history.
+
+**Install:** download [`android/LocalCharts.apk`](android/LocalCharts.apk) on the phone and open it. Android
+asks once to allow installing from your browser or Files app; allow it, then tap Install. (Play Protect may
+warn that it doesn't know the app; choose "Install anyway".) A newer APK installs over the old one and keeps
+your settings.
+
+It has four tabs: **Chart** (symbol, timeframes, Candles/Line, ƒx Indicators, strategy signals; pinch to zoom,
+drag to scroll, tap and hold for the crosshair), **Watchlist**, **Strategy** (ADMF Pivot, Red-Light Trend,
+Spike Fade; the tab shows HOLD/CASH) and **Alerts**.
+
+**Phone alerts:** on the Alerts tab (or the switch in the ADMF Pivot card) turn on *Notify me when the call
+changes* and allow notifications. The phone then checks about 2 minutes after each 1h bar closes on weekdays
+(10:32 … 15:32 and 16:02 New York time), and every 2 minutes after that until Yahoo has the bar, even with
+the app closed. It sends **BUY SOXL** / **SELL SOXL** with the same text as the desktop alerts. Set battery
+use to *Unrestricted* (the Alerts tab has a button) so the phone doesn't delay the checks. If you also run
+the desktop alerts you'll get both; turn one off if that's too many.
+
+**Build it yourself:** `cd android && ./gradlew assembleRelease` (needs JDK 17+ and the Android SDK) makes
+`android/app/build/outputs/apk/release/app-release.apk`. GitHub Actions builds the same APK on every push
+(the *Android app* workflow's artifact). The app shares `static/` with the desktop: chart, indicator and
+strategy code is copied in at build time, so changes there reach both. `android/app/src/main/assets/mobile/`
+is the phone layout, and the Java code replaces `app.py` (data), `pivot.py` and `alerts.py` (alerts). The unit
+tests check the Java ADMF Pivot against `static/*.js` bar by bar (with Node.js installed). The APK is signed
+with `android/app/localcharts.keystore`, kept in the repo on purpose so every build can update an installed copy.
+
 ## Adding your own indicator
 
 Open `static/registry.js` and add an entry. Each entry lists its settings and a `compute(bars, params)`
@@ -136,6 +166,7 @@ once they close. Bars still forming today stay in memory and refresh every 20 se
 | `pivot.py` | The ADMF Pivot in Python for the alerts (same results as the JavaScript; `alerts.py check` verifies) |
 | `static/app.js` | Panes, legends, indicator dialogs, watchlist, strategy panel |
 | `pine/` | The two TradingView strategy scripts |
+| `android/` | The Android app (see above); `android/LocalCharts.apk` is the ready-to-install build |
 
 Charts use [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/)
 (Apache 2.0, see `static/vendor`). The indicator ports are under MPL 2.0 (see `static/indicators.js`).

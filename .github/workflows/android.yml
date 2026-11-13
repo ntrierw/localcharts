@@ -1,0 +1,27 @@
+name: Android app
+
+on:
+  push:
+    paths: ["android/**", "static/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4   # PivotTest checks the Java strategy against static/*.js
+        with:
+          node-version: 20
+      - uses: android-actions/setup-android@v3
+      - name: Test and build
+        working-directory: android
+        run: ./gradlew testReleaseUnitTest assembleRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalCharts-apk
+          path: android/app/build/outputs/apk/release/app-release.apk

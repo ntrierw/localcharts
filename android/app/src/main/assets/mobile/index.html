@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Local Charts</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/mobile/mobile.css">
+</head>
+<body>
+<!-- Phone layout for Local Charts. The element ids are the ones static/app.js (shared with the desktop app)
+     looks for; mobile.js adds the tabs, the alerts screen and touch-friendly touches. -->
+<div id="app">
+  <div class="views">
+
+    <!-- ============================== Chart ============================== -->
+    <div class="view chart-view" id="view-chart">
+      <header class="tb">
+        <div class="tb-row">
+          <form id="symForm" autocomplete="off"><input id="symInput" spellcheck="false" autocapitalize="characters" autocorrect="off" placeholder="Symbol" enterkeyhint="go"></form>
+          <div class="hq" id="hdrQuote"></div>
+          <button class="ibtn" id="btnRefresh" aria-label="Refresh"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg></button>
+          <button class="ibtn fx" id="btnInd" aria-label="Indicators">ƒx</button>
+        </div>
+        <div class="tb-row tb-scroll">
+          <div class="tfs seg" id="tfs">
+            <button data-tf="5m">5m</button><button data-tf="15m">15m</button><button data-tf="1h">1h</button><button data-tf="4h">4h</button><button data-tf="1D">1D</button><button data-tf="1W">1W</button>
+          </div>
+          <div class="tfs seg" id="styles" aria-label="Price chart style">
+            <button data-style="candles" aria-label="Candles"><svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18"/><rect x="4.5" y="7" width="5" height="9" rx="1"/><rect x="14.5" y="5" width="5" height="8" rx="1"/></svg></button><button data-style="line" aria-label="Line"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 8-9"/></svg></button>
+          </div>
+          <label class="chip"><input type="checkbox" id="tgSignals" checked><span>Signals</span></label>
+        </div>
+        <div class="status" id="status">Loading…</div>
+      </header>
+      <section class="charts" id="panes"></section>
+    </div>
+
+    <!-- ============================== Watchlist ============================== -->
+    <div class="view page" id="view-watch">
+      <div class="ph">Watchlist</div>
+      <form id="addForm" class="add"><input id="addInput" placeholder="Add a symbol, e.g. NVDA" spellcheck="false" autocapitalize="characters" autocorrect="off" enterkeyhint="done"></form>
+      <table class="watch" id="watch"><tbody></tbody></table>
+      <div class="muted small pad">Tap a symbol to chart it. Prices refresh every 30 seconds while the app is open.</div>
+    </div>
+
+    <!-- ============================== Strategy ============================== -->
+    <div class="view page" id="view-strategy">
+      <div class="ph">Strategies</div>
+
+      <div class="card">
+        <div class="card-h">SOXL ADMF Pivot <span class="muted">1h</span></div>
+        <div id="pivCall" class="call">…</div>
+        <ul class="checks" id="pivChecks"></ul>
+        <label class="small notify switch-row"><span>Notify me when the call changes</span><input type="checkbox" id="notify" class="switch"></label>
+        <table class="stats" id="statsPiv"></table>
+        <div class="muted small" id="pivNote"></div>
+        <details><summary>How it works</summary><div class="small rules">
+          Hold SOXL by default. When a 1h bar closes with ADMF <b class="down">red</b> on SOXS or on SOXL,
+          go to cash for the next 4 bars (a new red restarts the count). If SOXL turns <b>aqua</b> or SOXS turns
+          <b>orange</b> during that time, buy back early. The call uses the last finished 1h bar; act on it at the next
+          bar's open. Uses the ADMF defaults (length 14, lookback 20): other settings test noticeably worse.
+        </div></details>
+        <details><summary>Recent trades</summary><table class="trades" id="tradesPiv"></table></details>
+        <button class="linkbtn" data-goto="chart-piv">Show signals on the SOXL 1h chart →</button>
+      </div>
+
+      <div class="card">
+        <div class="card-h">SOXL Red-Light Trend <span class="muted">4h · previous rule</span></div>
+        <div id="callBox" class="call">…</div>
+        <ul class="checks" id="checks"></ul>
+        <div id="manualRedBox" class="manual hidden">
+          <label><input type="checkbox" id="manualRed"> ATR+ADMF line on SOXS was red in the last 3 bars</label>
+          <div class="muted small">Only shown if the ADMF calculation is unavailable.</div>
+        </div>
+        <table class="stats" id="statsRed"></table>
+        <div class="muted small" id="redNote"></div>
+        <details><summary>Recent trades</summary><table class="trades" id="tradesRed"></table></details>
+        <button class="linkbtn" data-goto="chart-red">Show signals on the SOXL 4h chart →</button>
+      </div>
+
+      <div class="card">
+        <div class="card-h">SOXS Spike Fade <span class="muted">4h · short only, for reference</span></div>
+        <div id="fadeNow" class="small"></div>
+        <table class="stats" id="statsFade"></table>
+        <details><summary>Recent trades</summary><table class="trades" id="tradesFade"></table></details>
+        <button class="linkbtn" data-goto="chart-fade">Show signals on the SOXS 4h chart →</button>
+      </div>
+      <div class="muted small pad">Not financial advice.</div>
+    </div>
+
+    <!-- ============================== Alerts ============================== -->
+    <div class="view page" id="view-alerts">
+      <div class="ph">Alerts</div>
+
+      <div class="card">
+        <div class="card-h">Phone alerts <span class="muted">SOXL ADMF Pivot</span></div>
+        <label class="switch-row big"><span>Notify me when the call changes<br><span class="muted small">BUY SOXL when it goes back to HOLD, SELL SOXL when it goes to CASH</span></span>
+          <input type="checkbox" id="alertsOn" class="switch"></label>
+        <ul class="checks" id="alertChecks"></ul>
+        <div class="btnrow"><button id="btnTest">Send a test</button><button id="btnStatus">Current call</button></div>
+        <div class="small" id="alertMsg"></div>
+        <details><summary>How the alerts work</summary><div class="small rules">
+          The phone checks about 2 minutes after each 1h bar closes on weekdays (10:32, 11:32 … 15:32 and 16:02
+          New York time), and again every 2 minutes until Yahoo has that bar. It works with the app closed and
+          the screen off. Each alert says which bar triggered it, why, and when to act (at the next bar's open,
+          or at the 9:30 open for a signal from the day's last bar). If the phone was off when the call changed,
+          the alert arrives when it's back on, with the bar time so you can tell it's late. Nothing places orders.
+          <br><br>For on-time alerts, allow notifications, keep <b>exact timing</b> on and set battery use to
+          <b>Unrestricted</b>: some phones (Samsung, Xiaomi, OnePlus…) otherwise delay or skip background checks.
+        </div></details>
+        <details id="logBox"><summary>Alert log</summary><pre class="log" id="alertLog"></pre></details>
+      </div>
+
+      <div class="card">
+        <div class="card-h">Data</div>
+        <div class="small rules">
+          Prices come straight from Yahoo Finance (they can lag by a few minutes). Finished bars are saved on the
+          phone, so after the first download each refresh only fetches new bars. Yahoo keeps about 60 days of
+          5m/15m bars and about 2 years of 1h bars, so 4h charts and the backtests cover about 2 years; saved
+          intraday bars keep growing while you use the app.
+        </div>
+        <div class="btnrow"><button id="btnClear">Delete saved price history</button></div>
+        <div class="small" id="dataMsg"></div>
+      </div>
+
+      <div class="muted small pad foot">Local Charts <span id="ver"></span> · Charts:
+        <a href="https://www.tradingview.com/lightweight-charts/">TradingView Lightweight Charts</a> (Apache 2.0).
+        Indicator ports under MPL 2.0. Not financial advice.</div>
+    </div>
+  </div>
+
+  <nav class="tabbar" id="tabbar">
+    <button data-tab="chart"><svg viewBox="0 0 24 24"><path d="M7 4v16M17 4v16"/><rect x="4.5" y="8" width="5" height="8" rx="1"/><rect x="14.5" y="6" width="5" height="7" rx="1"/></svg><span>Chart</span></button>
+    <button data-tab="watch"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Watchlist</span></button>
+    <button data-tab="strategy"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg><span>Strategy</span><i class="badge" id="tabBadge"></i></button>
+    <button data-tab="alerts"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span>Alerts</span><i class="dot hidden" id="alertDot"></i></button>
+  </nav>
+</div>
+
+<div id="modal" class="modal hidden"><div class="mbox" id="modalBody"></div></div>
+<div id="toast" class="toast"></div>
+
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/indicators.js"></script>
+<script src="/static/registry.js"></script>
+<script src="/static/strategies.js"></script>
+<script src="/static/app.js"></script>
+<script src="/mobile/mobile.js"></script>
+</body>
+</html>

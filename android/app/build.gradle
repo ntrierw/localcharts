@@ -1,0 +1,69 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.localcharts.app"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.localcharts.app"
+        minSdk 26            // Android 8.0
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+    }
+
+    // One fixed signing key, kept in the repo, so every build (yours, CI, a later session) installs
+    // over the previous one as an update instead of needing an uninstall. It only identifies this app;
+    // it isn't a secret worth protecting for a personal, sideloaded app.
+    signingConfigs {
+        shared {
+            storeFile file("localcharts.keystore")
+            storePassword "localcharts"
+            keyAlias "localcharts"
+            keyPassword "localcharts"
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.shared }
+        release {
+            signingConfig signingConfigs.shared
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
+}
+
+// The chart, indicator and strategy code is shared with the desktop app: copy ../../static into the
+// APK's assets at build time, so there is only one copy of it to maintain.
+abstract class CopyWebAssets extends DefaultTask {
+    @InputDirectory abstract DirectoryProperty getSource()
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+    @javax.inject.Inject abstract FileSystemOperations getFs()
+    @TaskAction void run() {
+        fs.sync { spec ->
+            spec.from(source)
+            spec.into(outputDir.dir("static"))
+        }
+    }
+}
+def copyWebAssets = tasks.register("copyWebAssets", CopyWebAssets) {
+    source = rootProject.layout.projectDirectory.dir("../static")
+}
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.assets.addGeneratedSourceDirectory(copyWebAssets) { it.outputDir }
+    }
+}
