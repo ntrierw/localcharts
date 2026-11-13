@@ -30,7 +30,10 @@ function lastClosed1h(bars, now = nyNow()) {
   return -1;
 }
 async function api(path) {
-  const r = await fetch(path); const j = await r.json();
+  let r;
+  try { r = await fetch(path); }
+  catch { throw new Error('Lost the connection to Local Charts: its window was closed or it stopped. Start it again and this page reconnects by itself.'); }
+  const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || r.statusText);
   return j;
 }

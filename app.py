@@ -295,6 +295,36 @@ def api_quotes():
     return jsonify(quotes=out)
 
 
+LOG_FILE = Path(__file__).resolve().parent / "logs" / "app.log"
+
+
+def _start_log():
+    """Keep a small log of starts, stops and errors in logs/app.log, so if the app ever goes away
+    (its window closes when it exits) there's a record of why."""
+    import atexit
+    import faulthandler
+    import logging
+    import logging.handlers
+    LOG_FILE.parent.mkdir(exist_ok=True)
+    h = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    # our own start/stop lines, plus warnings and errors from Flask and the web server (not every request)
+    h.addFilter(lambda r: r.name == "localcharts" or r.levelno >= logging.WARNING)
+    log = logging.getLogger("localcharts")
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    for lg in (log, logging.getLogger("werkzeug"), app.logger):
+        lg.addHandler(h)
+    log.info("started (pid %d)", os.getpid())
+    atexit.register(lambda: log.info("stopped"))
+    sys.excepthook = lambda *e: log.critical("crashed", exc_info=e)
+    threading.excepthook = lambda a: log.error("thread %s failed", a.thread.name if a.thread else "?",
+                                               exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
+    global _fault_file
+    _fault_file = open(LOG_FILE.with_name("crash.log"), "a", encoding="utf-8")
+    faulthandler.enable(_fault_file)                 # a native crash writes its trace here
+
+
 def main():
     global DEMO
     ap = argparse.ArgumentParser()
@@ -315,6 +345,7 @@ def main():
         if not args.no_browser:
             webbrowser.open(url)
         return
+    _start_log()
     print(f"\n  Local Charts running at {url}  (Ctrl+C to stop)")
     if not DEMO:
         print(f"  Saved price history: {CACHE_DIR}")
