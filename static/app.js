@@ -51,7 +51,7 @@ const loadInds = () => {
   return list.map(x => { const i = newInst(x.type, x.params); if (x.visible === false) i.visible = false; return i; });
 };
 const S = {
-  symbol: store.get('symbol', 'SOXL'), tf: store.get('tf', '4h'),
+  symbol: store.get('symbol', 'SOXL'), tf: store.get('tf', '4h'), style: store.get('style', 'candles'),
   watch: store.get('watch', ['SOXL', 'SOXS', 'SOXX', 'SMH', 'NVDA', 'SPY', 'QQQ']),
   inds: loadInds(), bars: [], lastCall: null,
 };
@@ -116,7 +116,10 @@ function rebuild() {
   price = makePane(true, null);
   bgSeries = price.chart.addHistogramSeries({ priceScaleId: 'bg', priceLineVisible: false, lastValueVisible: false });
   price.chart.priceScale('bg').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
-  candles = price.chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+  // the price series: candles, or a line through the closes (markers and the crosshair work on either)
+  candles = S.style === 'line'
+    ? price.chart.addLineSeries({ color: '#2962ff', lineWidth: 2, crosshairMarkerRadius: 3 })
+    : price.chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
   price.anchor = candles;
   const bars = S.bars;
   for (const inst of S.inds) {
@@ -156,7 +159,7 @@ let priceMarkers = [];
 function draw() {
   const bars = S.bars; if (!candles) return;
   idxByTime.clear(); bars.forEach((b, i) => idxByTime.set(b.time, i));
-  candles.setData(bars);
+  candles.setData(S.style === 'line' ? bars.map(b => ({ time: b.time, value: b.close })) : bars);
   priceMarkers = [];
   for (const inst of S.inds) {
     if (!inst.ser) continue;
@@ -417,12 +420,19 @@ function setTf(tf) {
 }
 $('symForm').addEventListener('submit', e => { e.preventDefault(); const v = $('symInput').value.trim(); if (v) setSymbol(v); $('symInput').blur(); });
 $('tfs').addEventListener('click', e => { if (e.target.dataset.tf) setTf(e.target.dataset.tf); });
+function setStyle(style) {
+  S.style = style; store.set('style', style);
+  document.querySelectorAll('#styles button').forEach(b => b.classList.toggle('on', b.dataset.style === style));
+  if (price) rebuild();   // keeps the current zoom
+}
+$('styles').addEventListener('click', e => { if (e.target.dataset.style && e.target.dataset.style !== S.style) setStyle(e.target.dataset.style); });
 $('tgSignals').addEventListener('change', applyOverlays);
 $('manualRed').addEventListener('change', loadStrategy);
 $('notify').addEventListener('change', e => { if (e.target.checked && 'Notification' in window) Notification.requestPermission(); });
 
 $('symInput').value = S.symbol;
 document.querySelectorAll('#tfs button').forEach(b => b.classList.toggle('on', b.dataset.tf === S.tf));
+document.querySelectorAll('#styles button').forEach(b => b.classList.toggle('on', b.dataset.style === S.style));
 renderWatch();
 loadChart(true).then(loadStrategy);
 loadQuotes();
