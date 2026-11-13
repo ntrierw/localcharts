@@ -90,6 +90,12 @@ when it starts again (with the bar time, so you can tell it's late).
 Keep the channel name private: anyone who knows it can read and send to it. To stop alerts, delete the
 `alerts/` folder or unsubscribe in the app.
 
+**Start it with Windows:** put a shortcut in your Startup folder (press Win+R, type `shell:startup`, Enter)
+with target `"<this folder>\.venv\Scripts\python.exe" app.py --no-browser`, "Start in" set to this folder,
+and Run: Minimized. It then starts minimized each time you sign in. If the app is already running, starting it
+again (for example with `Start (Windows).bat`) just opens the browser, so alerts never go out twice. Delete
+the shortcut to undo.
+
 ## Adding your own indicator
 
 Open `static/registry.js` and add an entry. Each entry lists its settings and a `compute(bars, params)`

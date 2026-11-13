@@ -304,6 +304,17 @@ def main():
     args = ap.parse_args()
     DEMO = args.demo
     url = f"http://127.0.0.1:{args.port}"
+    # already running (for example started with Windows)? Then just open it, so the phone alerts
+    # don't run twice
+    import socket
+    with socket.socket() as s:
+        s.settimeout(1)
+        already = s.connect_ex(("127.0.0.1", args.port)) == 0
+    if already:
+        print(f"\n  Local Charts is already running at {url}")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
     print(f"\n  Local Charts running at {url}  (Ctrl+C to stop)")
     if not DEMO:
         print(f"  Saved price history: {CACHE_DIR}")
