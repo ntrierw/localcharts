@@ -144,7 +144,12 @@ once they close. Bars still forming today stay in memory and refresh every 20 se
   the full history again and replaces the saved file.
 - Saved 5m/15m/1h bars are kept after Yahoo's 60-day / 2-year window, so intraday history keeps
   growing while you use the app (unless the app goes unused for longer than that window).
-- If Yahoo can't be reached, the app shows the saved bars.
+- If Yahoo can't be reached, the app shows the saved bars, and the status line turns red and says when the
+  bars were last updated.
+- A refresh never removes bars already shown: if one of Yahoo's servers sends nothing or is behind, the newest
+  bars stay until Yahoo sends them again.
+- Yahoo sometimes sends the newest bar without its close (often the day's daily bar in the evening). The app
+  then uses the latest price from the same reply, instead of dropping the bar and showing yesterday as the last day.
 - Delete the `cache/` folder to force a full re-download.
 
 ## Limits

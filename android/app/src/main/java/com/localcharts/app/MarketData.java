@@ -82,9 +82,21 @@ public final class MarketData {
     }
 
     private static final class Entry {
-        final List<Bar> fin, df; final long liveAt;
-        Entry(List<Bar> fin, List<Bar> df, long liveAt) { this.fin = fin; this.df = df; this.liveAt = liveAt; }
+        final List<Bar> fin, df;
+        final long liveAt;      // when Yahoo was last asked
+        final long okAt;        // when Yahoo last sent bars (0: not yet since the app started)
+        final String problem;   // why the last refresh didn't work, or null
+        Entry(List<Bar> fin, List<Bar> df, long liveAt, long okAt, String problem) {
+            this.fin = fin; this.df = df; this.liveAt = liveAt; this.okAt = okAt; this.problem = problem;
+        }
     }
+
+    /** Where bars come from (Yahoo; tests swap in their own). */
+    interface Fetcher {
+        List<Bar> fetch(String symbol, String yint, Integer days, LocalDate start) throws IOException;
+    }
+    Fetcher fetcher = MarketData::yahoo;
+    long refreshSec = LIVE_REFRESH_SEC;
 
     private static MarketData instance;
     private final File cacheDir;
@@ -193,11 +205,21 @@ public final class MarketData {
             }
         }
 
+        // Yahoo sometimes sends the newest bar without its close (often the day's daily bar in the evening);
+        // dropping it would leave the chart a day behind. The reply still has the latest price, so use it
+        // when its time falls inside that bar.
+        JSONObject meta = res.getJSONObject("meta");
+        double mPrice = meta.optDouble("regularMarketPrice", Double.NaN);
+        long mTime = meta.optLong("regularMarketTime", 0);
+
         List<Bar> out = new ArrayList<>();
         for (int i = 0; i < ts.length(); i++) {
-            if (O.isNull(i) || H.isNull(i) || L.isNull(i) || C.isNull(i)) continue;
+            if (O.isNull(i) || H.isNull(i) || L.isNull(i)) continue;
             long t = ts.getLong(i);
-            double o = O.getDouble(i), h = H.getDouble(i), l = L.getDouble(i), c = C.getDouble(i);
+            boolean fill = C.isNull(i) && i == ts.length() - 1 && mPrice > 0 && mTime > 0 && insideBar(t, mTime, yint);
+            if (C.isNull(i) && !fill) continue;
+            double o = O.getDouble(i), h = H.getDouble(i), l = L.getDouble(i), c = fill ? mPrice : C.getDouble(i);
+            if (fill) { h = Math.max(h, c); l = Math.min(l, c); }
             if (Double.isNaN(o) || Double.isNaN(h) || Double.isNaN(l) || Double.isNaN(c)) continue;
             double v = V == null || V.isNull(i) ? 0 : V.getDouble(i);
             if (intraday) {
@@ -219,6 +241,13 @@ public final class MarketData {
             out = norm;
         }
         return dedupe(out);
+    }
+
+    /** Is `when` within the bar that starts at `t` (real epoch seconds)? */
+    static boolean insideBar(long t, long when, String yint) {
+        if (yint.equals("1d")) return etDate(t).equals(etDate(when));
+        if (yint.equals("1wk")) return t <= when && when < t + 7 * 86400;
+        return t <= when && when <= t + span(yint);
     }
 
     /** Yahoo often returns the bar still forming as its own row after the real one: fold it in (as yfinance does). */
@@ -345,7 +374,7 @@ public final class MarketData {
             Entry ent;
             synchronized (cache) { ent = cache.get(key); }
             long now = System.currentTimeMillis() / 1000;
-            if (ent != null && now - ent.liveAt < LIVE_REFRESH_SEC) return ent.df;
+            if (ent != null && now - ent.liveAt < refreshSec) return ent.df;
             List<Bar> fin = ent != null ? ent.fin : loadDisk(symbol, yint);
 
             // only ask for bars from the last saved one onward; re-getting that bar lets us spot splits
@@ -356,21 +385,52 @@ public final class MarketData {
             }
             List<Bar> df;
             boolean reset;
+            long okAt = ent != null ? ent.okAt : 0;
+            String problem = null;
             try {
-                List<Bar> fresh = yahoo(symbol, yint, days, start);
+                List<Bar> fresh = fetcher.fetch(symbol, yint, days, start);
+                if (fresh.isEmpty() && !fin.isEmpty()) problem = "Yahoo sent no bars";
+                else okAt = now;
                 df = merge(fin, fresh);
                 reset = df == null;
-                if (reset) df = start != null ? yahoo(symbol, yint, days, null) : fresh;
+                if (reset) df = start != null ? fetcher.fetch(symbol, yint, days, null) : fresh;
             } catch (IOException e) {   // keep showing what we have if Yahoo is unreachable
                 if (ent == null && fin.isEmpty()) throw e;
                 df = ent != null ? ent.df : fin;
                 reset = false;
+                problem = friendly(e);
             }
+            // Yahoo's servers don't always agree, and one can be behind (or send nothing): never let a
+            // refresh drop newer bars already shown. They're replaced once Yahoo sends them again.
+            if (!reset && ent != null) df = keepNewer(df, ent.df);
             List<Bar> newFin = closed(df, yint);
             if (reset || !sameTimes(newFin, fin)) saveDisk(symbol, yint, newFin);
-            synchronized (cache) { cache.put(key, new Entry(newFin, df, now)); }
+            synchronized (cache) { cache.put(key, new Entry(newFin, df, now, okAt, problem)); }
             return df;
         }
+    }
+
+    /** `df` plus any bars in `prev` that are newer than its last one. */
+    static List<Bar> keepNewer(List<Bar> df, List<Bar> prev) {
+        long last = df.isEmpty() ? Long.MIN_VALUE : df.get(df.size() - 1).t;
+        if (prev.isEmpty() || prev.get(prev.size() - 1).t <= last) return df;
+        List<Bar> out = new ArrayList<>(df);
+        for (Bar b : prev) if (b.t > last) out.add(b);
+        return out;
+    }
+
+    /** When a symbol's bars last came from Yahoo, and why the latest refresh didn't work (if it didn't). */
+    private Entry entry(String symbol, String tf) {
+        synchronized (cache) { return cache.get(symbol + "|" + TIMEFRAMES.get(tf).yint); }
+    }
+
+    static String friendly(Exception e) {
+        if (e instanceof java.net.UnknownHostException || e instanceof java.net.SocketTimeoutException
+                || e instanceof java.net.ConnectException)
+            return "no internet connection";
+        if (e instanceof YahooError && ((YahooError) e).code == 429)
+            return "Yahoo is busy (too many requests), try again in a minute";
+        return errMsg(e);
     }
 
     private static boolean sameTimes(List<Bar> a, List<Bar> b) {
@@ -456,13 +516,7 @@ public final class MarketData {
         try {
             bars = getBars(symbol, tf);
         } catch (Exception e) {
-            String m = errMsg(e);
-            if (e instanceof java.net.UnknownHostException || e instanceof java.net.SocketTimeoutException
-                    || e instanceof java.net.ConnectException)
-                m = "no internet connection";
-            else if (e instanceof YahooError && ((YahooError) e).code == 429)
-                m = "Yahoo is busy (too many requests), try again in a minute";
-            return new Reply(502, "{\"error\":" + jstr("could not load " + symbol + ": " + m) + "}");
+            return new Reply(502, "{\"error\":" + jstr("could not load " + symbol + ": " + friendly(e)) + "}");
         }
         if (bars.isEmpty()) return new Reply(404, "{\"error\":" + jstr("no data for " + symbol) + "}");
         StringBuilder b = new StringBuilder(bars.size() * 110 + 200);
@@ -474,9 +528,16 @@ public final class MarketData {
                     .append(num(x.h)).append(",\"low\":").append(num(x.l)).append(",\"close\":").append(num(x.c))
                     .append(",\"volume\":").append(num(x.v)).append('}');
         }
-        String updated = LocalDateTime.now().withNano(0).toString();
-        if (updated.length() == 16) updated += ":00";
-        b.append("],\"updated\":").append(jstr(updated)).append(",\"source\":\"Yahoo Finance\"}");
+        // "updated" is when Yahoo last sent bars (null: only saved bars so far); "problem" says why the
+        // latest refresh didn't work, so the status line never claims fresh data it doesn't have
+        Entry ent = entry(symbol, tf);
+        String updated = null;
+        if (ent != null && ent.okAt > 0) {
+            updated = LocalDateTime.ofInstant(Instant.ofEpochSecond(ent.okAt), ZoneId.systemDefault()).withNano(0).toString();
+            if (updated.length() == 16) updated += ":00";
+        }
+        b.append("],\"updated\":").append(jstr(updated)).append(",\"problem\":").append(jstr(ent == null ? null : ent.problem))
+                .append(",\"source\":\"Yahoo Finance\"}");
         return new Reply(200, b.toString());
     }
 

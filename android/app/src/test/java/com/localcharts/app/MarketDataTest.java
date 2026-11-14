@@ -59,6 +59,26 @@ public class MarketDataTest {
         assertEquals(et(2026, 11, 13, 0, 0), b.get(1).t);
     }
 
+    static String dailyWithoutLastClose(long marketTime) {
+        long d1 = et(2026, 11, 12, 9, 30), d2 = et(2026, 11, 13, 9, 30);
+        return "{\"chart\":{\"result\":[{\"meta\":{\"regularMarketPrice\":58.32,\"regularMarketTime\":" + marketTime
+                + "},\"timestamp\":[" + d1 + "," + d2 + "],\"indicators\":{\"quote\":[{\"open\":[59.79,63.3],\"high\":[68.91,64.7],"
+                + "\"low\":[59.27,52.36],\"close\":[65.53,null],\"volume\":[181383900,204043573]}]}}],\"error\":null}}";
+    }
+
+    @Test
+    public void lastBarWithoutACloseUsesTheLatestPrice() throws Exception {
+        // Yahoo in the evening: today's daily bar has no close, but the reply has the closing price
+        List<MarketData.Bar> b = MarketData.parse(new JSONObject(dailyWithoutLastClose(et(2026, 11, 13, 16, 0))), "1d");
+        assertEquals(2, b.size());
+        assertEquals(et(2026, 11, 13, 0, 0), b.get(1).t);
+        assertEquals(58.32, b.get(1).c, 0);
+        assertEquals(204043573, b.get(1).v, 0);
+        // a price from another day doesn't belong to that bar: leave it out as before
+        List<MarketData.Bar> c = MarketData.parse(new JSONObject(dailyWithoutLastClose(et(2026, 11, 12, 16, 0))), "1d");
+        assertEquals(1, c.size());
+    }
+
     @Test
     public void fourHourBarsFollowTheSession() {
         List<MarketData.Bar> h = MarketData.listOf(

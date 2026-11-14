@@ -249,7 +249,10 @@ async function loadChart(full = true) {
     S.bars = j.bars;
     if (full || !panes.length) { if (full) price = null; rebuild(); }   // price = null -> reset zoom to the latest bars
     else draw();
-    setStatus(`${j.source} · updated ${j.updated.slice(11)} · ${j.bars.length} bars`);
+    // when the latest refresh didn't work, say so (in red) and how old the bars are
+    const upd = j.updated ? `updated ${j.updated.slice(11)}` : 'saved bars only';
+    if (j.problem) setStatus(`Couldn't refresh: ${j.problem} · ${upd} · ${j.bars.length} bars`, true);
+    else setStatus(`${j.source} · ${upd} · ${j.bars.length} bars`);
   } catch (e) { if (seq === loadSeq) setStatus(e.message, true); }
 }
 function setStatus(t, err) { const el = $('status'); el.textContent = t; el.classList.toggle('err', !!err); }

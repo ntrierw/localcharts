@@ -48,7 +48,8 @@ BAR_SPAN = {
 }
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-_cache = {}        # (symbol, yint) -> {"final": closed bars, "df": closed + live bars, "live_at": time}
+_cache = {}        # (symbol, yint) -> {"final": closed bars, "df": closed + live bars, "live_at": time asked,
+                   #                    "ok_at": time Yahoo last sent bars, "problem": why the last refresh failed}
 _key_locks = {}
 _quote_cache = {}
 _lock = threading.Lock()
@@ -76,10 +77,45 @@ def _yahoo(symbol, yint, days, start=None):
     t = yf.Ticker(symbol)
     kw = dict(interval=yint, auto_adjust=False, actions=False, prepost=False)
     if start is None and days is None:
-        return _clean(t.history(period="max", **kw))
-    if start is None:
-        start = dt.date.today() - dt.timedelta(days=days)
-    return _clean(t.history(start=start.isoformat(), **kw))
+        df = t.history(period="max", **kw)
+    else:
+        if start is None:
+            start = dt.date.today() - dt.timedelta(days=days)
+        df = t.history(start=start.isoformat(), **kw)
+    try:
+        df = _fill_last_close(df, t.history_metadata or {}, yint)
+    except Exception as e:
+        print(f"could not check the last close for {symbol} {yint}: {e}", file=sys.stderr)
+    return _clean(df)
+
+
+def _fill_last_close(df, meta, yint):
+    """Yahoo sometimes sends the newest bar without its close (often for the day's daily bar in the evening),
+    and a bar without a close is dropped, leaving the chart a day behind. The same reply still has the
+    latest price (regularMarketPrice), so use it when its time falls inside that bar."""
+    if df is None or df.empty or not pd.isna(df["Close"].iloc[-1]) or df[["Open", "High", "Low"]].iloc[-1].isna().any():
+        return df
+    price, when = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    if price is None or when is None or not price > 0:
+        return df
+    when = pd.Timestamp(when, unit="s") if isinstance(when, (int, float)) else pd.Timestamp(when)
+    when = (when.tz_localize("UTC") if when.tz is None else when).tz_convert(ET)
+    t = df.index[-1]
+    t = (t.tz_localize(ET) if t.tz is None else t).tz_convert(ET)
+    if yint == "1d":
+        inside = when.date() == t.date()
+    elif yint == "1wk":
+        inside = t <= when < t + pd.Timedelta(days=7)
+    else:
+        inside = t <= when <= t + BAR_SPAN[yint]
+    if not inside:
+        return df
+    df = df.copy()
+    i = df.index[-1]
+    df.loc[i, "Close"] = float(price)
+    df.loc[i, "High"] = max(df.loc[i, "High"], float(price))
+    df.loc[i, "Low"] = min(df.loc[i, "Low"], float(price))
+    return df
 
 
 def _demo(symbol, yint, days, short):
@@ -193,8 +229,13 @@ def _base(symbol, yint, days):
             last = final.index[-1].date()
             if days is None or last >= dt.date.today() - dt.timedelta(days=days):
                 start = last
+        ok_at, problem = (ent["ok_at"] if ent is not None else None), None
         try:
             fresh = _yahoo(symbol, yint, days, start)
+            if fresh.empty and not final.empty:
+                problem = "Yahoo sent no bars"
+            else:
+                ok_at = time.time()
             ok, df = _merge(final, fresh)
             if not ok and start is not None:
                 print(f"{symbol} {yint}: saved prices no longer match Yahoo (split?), "
@@ -205,13 +246,31 @@ def _base(symbol, yint, days):
             if ent is None and final.empty:
                 raise
             print(f"refresh failed for {symbol} {yint}: {e}", file=sys.stderr)
-            df, reset = (ent["df"] if ent is not None else final), False
+            df, reset, problem = (ent["df"] if ent is not None else final), False, str(e) or type(e).__name__
 
+        # Yahoo's servers don't always agree, and one can be behind (or send nothing): never let a
+        # refresh drop newer bars already shown. They're replaced once Yahoo sends them again.
+        if not reset and ent is not None:
+            df = _keep_newer(df, ent["df"])
         new_final = _closed(df, yint)
         if reset or not new_final.index.equals(final.index):
             _save_disk(symbol, yint, new_final)
-        _cache[key] = {"final": new_final, "df": df, "live_at": time.time()}
+        _cache[key] = {"final": new_final, "df": df, "live_at": time.time(), "ok_at": ok_at, "problem": problem}
         return df
+
+
+def _keep_newer(df, prev):
+    """`df` plus any bars in `prev` that are newer than its last one."""
+    if prev.empty or (not df.empty and prev.index[-1] <= df.index[-1]):
+        return df
+    newer = prev[prev.index > df.index[-1]] if not df.empty else prev
+    return pd.concat([df, newer]).sort_index()
+
+
+def freshness(symbol, tf):
+    """(when Yahoo last sent bars or None, why the latest refresh failed or None) for a symbol's timeframe."""
+    ent = _cache.get((symbol, TIMEFRAMES[tf][0])) or {}
+    return ent.get("ok_at"), ent.get("problem")
 
 
 def _to_4h(df):
@@ -270,8 +329,11 @@ def api_bars():
          "close": float(c), "volume": float(v)}
         for ti, o, h, l, c, v in zip(t, df["Open"], df["High"], df["Low"], df["Close"], df["Volume"])
     ]
-    return jsonify(symbol=symbol, tf=tf, bars=bars,
-                   updated=dt.datetime.now().isoformat(timespec="seconds"),
+    # "updated" is when Yahoo last sent bars (None: only saved bars so far); "problem" says why the latest
+    # refresh didn't work, so the status line never claims fresh data it doesn't have
+    ok_at, problem = (time.time(), None) if DEMO else freshness(symbol, tf)
+    return jsonify(symbol=symbol, tf=tf, bars=bars, problem=problem,
+                   updated=dt.datetime.fromtimestamp(ok_at).isoformat(timespec="seconds") if ok_at else None,
                    source="Demo data" if DEMO else "Yahoo Finance")
 
 
